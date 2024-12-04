@@ -136,6 +136,7 @@ if fichier_principal is not None:
 
         # Calcul des moyennes par opérateur et par période
         moyennes_par_periode = repetitions_graph.groupby([periode_selectionnee, col_prenom_nom])['Repetitions'].mean().reset_index()
+        moyennes_par_operateur = moyennes_par_periode.groupby(['Prénom et nom'])['Repetitions'].mean().reset_index()
         moyenne_globale = moyennes_par_periode['Repetitions'].mean()  # Moyenne globale
 
         # Graphique des moyennes avec moyenne globale
@@ -179,12 +180,13 @@ if fichier_principal is not None:
         
         with col3:
             st.write("### Tableau des Moyennes par période et par opérateur")
-            styled_df = style_moyennes(moyennes_par_periode)
+            styled_df = style_moyennes(moyennes_par_operateur)
             st.dataframe(styled_df, use_container_width=True)
 
         with col4:
             st.write("### Tableau des rapports d'intervention par période et par opérateur")
             st.dataframe(repetitions_tableau, use_container_width=True)
+
 
         # Téléchargement des rapports
         st.subheader("Télécharger le tableau des rapports d'interventions")
