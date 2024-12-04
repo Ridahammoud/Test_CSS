@@ -19,15 +19,6 @@ def convert_df_to_xlsx(df):
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
     
-def format_ligne(ligne):
-    return f"""
-    **Date**: {col_date}
-    **Opérateur**: {ligne['Prénom et nom']}
-    **Équipement**: {ligne['Équipement']}
-    **Localisation**: {ligne['Localisation']}
-    **Problème**: {ligne['Technique'] if pd.notna(ligne['Technique']) else ligne['Opérationnel']}
-    """
-
 def style_moyennes(df, top_n=3, bottom_n=5):
     moyenne_totale = df['Repetitions'].mean()
 
@@ -199,18 +190,33 @@ if fichier_principal is not None:
         st.subheader("Tirage au sort de deux lignes par opérateur")
         df_filtre = df_principal[(df_principal[col_date].dt.date >= debut_periode) & (df_principal[col_date].dt.date <= fin_periode)]
         for operateur in operateurs_selectionnes:
-            st.write(f"Tirage pour {operateur}:")
+            st.write(f"### Tirage pour {operateur}:")
             df_operateur = df_filtre[df_filtre[col_prenom_nom] == operateur]
             lignes_tirees = df_operateur.sample(n=min(2, len(df_operateur)))
+            
             if not lignes_tirees.empty:
                 for _, ligne in lignes_tirees.iterrows():
-                    st.markdown(format_ligne(ligne))
-                    if pd.notna(ligne['Photo']):
-                        st.image(ligne['Photo'], width=200)
+                    col_info, col_photo = st.columns([3, 1])
+
+                    with col_info:
+                        
+                    st.markdown(f"""
+                    **Date**:{ligne['Date et Heure début d\'intervention']}
+                    **Opérateur**: {ligne['Prénom et nom']}
+                    **Équipement**: {ligne['Équipement']}
+                    **Localisation**: {ligne['Localisation']}
+                    **Problème**: {ligne['Technique'] if
+                                   pd.notna(ligne['Technique']) else ligne['Opérationnel']}
+                                   """)
+                    with col_photo:
+                        if pd.notna(ligne['Photo']):
+                            st.image(ligne['Photo'], width=200)
+                        else:
+                            st.write("Pas de photo disponible")
             else:
                 st.write("Pas de données disponibles pour cet opérateur dans la période sélectionnée.")
             st.write("---")
-
+            
         # Téléchargement des rapports
         st.subheader("Télécharger le tableau des rapports d'interventions")
         xlsx_data = convert_df_to_xlsx(repetitions_tableau)
