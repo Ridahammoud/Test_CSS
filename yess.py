@@ -168,7 +168,7 @@ if fichier_principal is not None:
         ))
 
         fig1.update_layout(
-            title=f"Moyenne des répétitions par opérateur ({periode_selectionnee}) avec ligne de moyenne globale",
+            title=f"Moyenne des rapports d'interventions par opérateur ({periode_selectionnee}) avec ligne de moyenne globale",
             xaxis_title=periode_selectionnee,
             yaxis_title="Moyenne des rapports d'interventions",
             template="plotly_dark"
