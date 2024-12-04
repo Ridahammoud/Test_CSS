@@ -213,7 +213,7 @@ if fichier_principal is not None:
                             st.image(ligne['Photo'], width=200)
                         else:
                             st.write("Pas de photo disponible")
-            else:
+                else:
                 st.write("Pas de données disponibles pour cet opérateur dans la période sélectionnée.")
             st.write("---")
             
