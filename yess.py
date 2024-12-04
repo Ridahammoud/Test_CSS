@@ -206,7 +206,7 @@ if fichier_principal is not None:
                 for _, ligne in lignes_tirees.iterrows():
                     st.markdown(format_ligne(ligne))
                     if pd.notna(ligne['Photo']):
-                        st.image(ligne['Photo'], width=400)
+                        st.image(ligne['Photo'], width=200)
             else:
                 st.write("Pas de données disponibles pour cet opérateur dans la période sélectionnée.")
             st.write("---")
