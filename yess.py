@@ -18,6 +18,15 @@ def convert_df_to_xlsx(df):
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
+    
+def format_ligne(ligne):
+    return f"""
+    **Date**: {ligne['Date de réponse'].split()[0]}
+    **Opérateur**: {ligne['Prénom et nom']}
+    **Équipement**: {ligne['Équipement']}
+    **Localisation**: {ligne['Localisation']}
+    **Problème**: {ligne['Technique'] if pd.notna(ligne['Technique']) else ligne['Opérationnel']}
+    """
 
 def style_moyennes(df, top_n=3, bottom_n=5):
     moyenne_totale = df['Repetitions'].mean()
@@ -194,9 +203,10 @@ if fichier_principal is not None:
             df_operateur = df_filtre[df_filtre[col_prenom_nom] == operateur]
             lignes_tirees = df_operateur.sample(n=min(2, len(df_operateur)))
             if not lignes_tirees.empty:
-                lignes_tirees['Photo'] = lignes_tirees['Photo'].apply(lambda x: f'<img src="{x}" width="100"/>')
-                lignes_tirees['Photo 2'] = lignes_tirees['Photo 2'].apply(lambda x: f'<img src="{x}" width="100"/>')
-                st.markdown(lignes_tirees.to_html(escape=False), unsafe_allow_html=True)
+                for _, ligne in lignes_tirees.iterrows():
+                    st.markdown(format_ligne(ligne))
+                    if pd.notna(ligne['Photo']):
+                        st.image(ligne['Photo'], width=400)
             else:
                 st.write("Pas de données disponibles pour cet opérateur dans la période sélectionnée.")
             st.write("---")
