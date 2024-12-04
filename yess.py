@@ -21,7 +21,7 @@ def convert_df_to_xlsx(df):
     
 def format_ligne(ligne):
     return f"""
-    **Date**: {col_date}
+    **Date**: {date_debut}
     **Opérateur**: {ligne['Prénom et nom']}
     **Équipement**: {ligne['Équipement']}
     **Localisation**: {ligne['Localisation']}
