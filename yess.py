@@ -187,6 +187,19 @@ if fichier_principal is not None:
             st.write("### Tableau des rapports d'intervention par période et par opérateur")
             st.dataframe(repetitions_tableau, use_container_width=True)
 
+        st.subheader("Tirage au sort de deux lignes par opérateur")
+        df_filtre = df_principal[(df_principal[col_date].dt.date >= debut_periode) & (df_principal[col_date].dt.date <= fin_periode)]
+        for operateur in operateurs_selectionnes:
+            st.write(f"Tirage pour {operateur}:")
+            df_operateur = df_filtre[df_filtre[col_prenom_nom] == operateur]
+            lignes_tirees = df_operateur.sample(n=min(2, len(df_operateur)))
+            if not lignes_tirees.empty:
+                lignes_tirees['Photo'] = lignes_tirees['Photo'].apply(lambda x: f'<img src="{x}" width="100"/>')
+                lignes_tirees['Photo 2'] = lignes_tirees['Photo 2'].apply(lambda x: f'<img src="{x}" width="100"/>')
+                st.markdown(lignes_tirees.to_html(escape=False), unsafe_allow_html=True)
+            else:
+                st.write("Pas de données disponibles pour cet opérateur dans la période sélectionnée.")
+            st.write("---")
 
         # Téléchargement des rapports
         st.subheader("Télécharger le tableau des rapports d'interventions")
@@ -196,3 +209,5 @@ if fichier_principal is not None:
         st.subheader("Télécharger le tableau des rapports d'interventions en PDF")
         pdf_data = generate_pdf(repetitions_tableau)
         st.download_button(label="Télécharger en PDF", data=pdf_data, file_name="tableau.pdf", mime="application/pdf")
+    if st.checkbox("Afficher toutes les données"):
+        st.dataframe(df_principal)
