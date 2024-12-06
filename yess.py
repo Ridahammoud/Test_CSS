@@ -14,10 +14,10 @@ def charger_donnees(fichier):
 
 # Ajouter une colonne pour les équipes
 def assign_team(name):
-    if name in team_1:
-        return "Team 1"
-    elif name in team_2:
-        return "Team 2"
+    if name in team_1_Christian:
+        return "Team 1 Christian"
+    elif name in team_2_Hakim:
+        return "Team 2 Hakim"
     else:
         return "Non assigné"
 
