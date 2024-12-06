@@ -74,7 +74,7 @@ if fichier_principal is not None:
 
     with col1:
         col_prenom_nom = df_principal.columns[4]
-        col_date = st.selectbox("Choisissez la colonne de date", df_principal.columns)
+        col_date = df_principal.columns[6]
 
         operateurs = df_principal[col_prenom_nom].unique().tolist()
         operateurs.append("Total")
