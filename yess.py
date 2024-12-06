@@ -12,6 +12,15 @@ import plotly.express as px
 def charger_donnees(fichier):
     return pd.read_excel(fichier)
 
+# Ajouter une colonne pour les équipes
+def assign_team(name):
+    if name in team_1:
+        return "Team 1"
+    elif name in team_2:
+        return "Team 2"
+    else:
+        return "Non assigné"
+
 # Fonction pour convertir un dataframe en fichier XLSX
 def convert_df_to_xlsx(df):
     output = BytesIO()
@@ -82,13 +91,34 @@ if fichier_principal is not None:
         operateurs.append("Team 2 : Hakim")
         operateurs_selectionnes = st.multiselect("Choisissez un ou plusieurs opérateurs", operateurs)
 
+        # Définir les équipes en fonction des noms
+        team_1_Christian = ["Abdelaziz Hani Ddamir", "Aboubacar Tamadou", "Alhousseyni Dia", "Berkant Ince",
+          "Boubakar Sidiki Ouedrago", "Boubou Gassama", "Chamsoudine Abdoulwahab", "Dagobert Ewane Jene",
+          "Dione Mbaye", "Doro Diaw", "Enrique Aguey - Zinsou", "Fabien Prevost", "Fabrice Nelien", 
+          "Idrissa Yatera", "Jabbar Arshad", "Jacques-Robert Bertrand", "Karamoko Yatabare", 
+          "Mahamadou Niakate", "Mamadou Bagayogo", "Mamadou  Kane", "Mohamed Lamine Saad", "Moussa Soukouna",
+          "Pascal Nouaga", "Rachid Ramdane", "Taha Hsine", "Tommy Lee Casdard", "Volcankan Ince", 
+          "Youssef Mezouar", "Youssouf Wadiou", "Elyas Bouzar", "Reda Jdi"]
+        team_2_Hakim = ["Abdoul Ba", "Aladji Sakho", "Amadou Sow", "Arfang Cisse", "Bouabdellah Ayad", 
+          "Cheickne Kebe", "Dany Chantre", "David Diockou N'Diaye", "Dylan Baron", "Fabien Tsop Nang", 
+          "Fabrice Badibengi", "Faker Ajili", "Fodie Koita Camara", "Gaetan Girard", "Idy Barro", 
+          "Aboubacar Cisse", "Johnny Michaud", "Ladji Bamba", "Mamadou Fofana", "Mamadou Kane", 
+          "Mamadou Sangare", "Mamadou Soumare", "Mohamed Bouchleh", "Mostefa Mokhtari", "Nassur Ibrahim", 
+          "Riadh Moussa", "Saim Haroun Bhatti", "Samir Chikh", "Tony Allot", "Walter Tavares"]
+
+        df_principal['Équipe'] = df_principal['Prénom et nom'].apply(assign_team)
+
+        # Filtrer le DataFrame par équipe si une équipe est sélectionnée
+        if equipe_selectionnee != "Toutes les équipes":
+            df_principal = df_principal[df_principal['Équipe'] == equipe_selectionnee]
+
+        # Ajouter une sélection par équipe
+        equipes = ["Toutes les équipes", "Team 1 Christian", "Team 2 Hakim"]
+        equipe_selectionnee = st.selectbox("Choisissez une équipe :", options=equipes)
+
         if "Total" in operateurs_selectionnes:
             operateurs_selectionnes = df_principal[col_prenom_nom].unique().tolist()
-        if "Team 1 : Christian" in operateurs_selectionnes:
-            operateurs_selectionnes = ["Abdelaziz Hani Ddamir","Aboubacar Tamadou",'Alhousseyni Dia','Berkant Ince','Boubakar Sidiki Ouedrago','Boubou Gassama','Chamsoudine Abdoulwahab','Dagobert Ewane Jene','Dione Mbaye','Doro Diaw','Enrique Aguey - Zinsou','Fabien Prevost','Fabrice Nelien','Idrissa Yatera','Jabbar Arshad','Jacques-Robert Bertrand','Karamoko Yatabare','Mahamadou Niakate','Mamadou Bagayogo','Mamadou  Kane','Mohamed Lamine Saad','Moussa Soukouna','Pascal Nouaga','Rachid Ramdane','Taha Hsine','Tommy Lee Casdard','Volcankan Ince','Youssef Mezouar','Youssouf Wadiou','Elyas Bouzar','Reda Jdi']
-        if "Team 2 : Hakim" in operateurs_selectionnes:
-            operateurs_selectionnes = ['Abdoul Ba','Aladji Sakho','Amadou Sow','Arfang Cisse','Bouabdellah Ayad','Cheickne Kebe','Dany Chantre','David Diockou N\'Diaye','Dylan Baron','Fabien Tsop Nang','Fabrice Badibengi','Faker Ajili','Fodie Koita Camara','Gaetan Girard','Idy Barro','Aboubacar Cisse','Johnny Michaud','Ladji Bamba','Mamadou Fofana','Mamadou Kane','Mamadou Sangare','Mamadou Soumare','Mohamed Bouchleh','Mostefa Mokhtari','Nassur Ibrahim','Riadh Moussa','Saim Haroun Bhatti','Samir Chikh','Tony Allot','Walter Tavares']
-
+            
         periodes = ["Jour", "Semaine", "Mois", "Trimestre", "Année"]
         periode_selectionnee = st.selectbox("Choisissez une période", periodes)
 
