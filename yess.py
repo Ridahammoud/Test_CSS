@@ -1,241 +1,285 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import io
 import plotly.graph_objects as go
+import plotly.express as px
 from io import BytesIO
 import xlsxwriter
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-import plotly.express as px
+import os
+
+
+# Fonction pour calculer la durée de travail
+def calculer_duree_travail(entree, sortie):
+    if pd.isnull(entree) or pd.isnull(sortie):
+        return None
+    debut = datetime.strptime(entree, "%Y-%m-%d %H:%M")
+    fin = datetime.strptime(sortie, "%Y-%m-%d %H:%M")
+    if fin < debut:
+        fin += timedelta(days=1)
+    duree = (fin - debut)
+    return duree
 
 # Fonction de chargement des données
 @st.cache_data
 def charger_donnees(fichier):
     return pd.read_excel(fichier)
 
-# Ajouter une colonne pour les équipes
-def assign_team(name):
-    if name in team_1_Christian:
-        return "Team 1 Christian"
-    elif name in team_2_Hakim:
-        return "Team 2 Hakim"
+# Chargement des données
+@st.cache_data
+def load_data(uploaded_file):
+    if uploaded_file is not None:
+        try:
+            # Charger le fichier Excel ou CSV
+            df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
+            
+            # Vérifier si la colonne "Date et heure" existe
+            if 'Date et heure' not in df.columns:
+                st.error("Le fichier ne contient pas de colonne 'Date et heure'.")
+                return None
+            
+            # Convertir la colonne "Date et heure" en type datetime
+            df['Date et heure'] = pd.to_datetime(df['Date et heure'], errors='coerce')
+            
+            # Vérifier les valeurs non converties (NaT)
+            if df['Date et heure'].isna().any():
+                st.warning("Certaines valeurs dans la colonne 'Date et heure' n'ont pas pu être converties.")
+            
+            return df
+        except Exception as e:
+            st.error(f"Erreur lors du chargement des données : {e}")
+            return None
     else:
-        return "Non assigné"
+        return None
 
-# Fonction pour convertir un dataframe en fichier XLSX
-def convert_df_to_xlsx(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    return output.getvalue()
+def get_correct_and_incorrect_pointages(df):
+    entrees = df[df['Action'] == 'Pointer entrée'].groupby('Prénom et nom').last()
+    sorties = df[df['Action'] == 'Pointer sortie'].groupby('Prénom et nom').first()
+    
+    tous_les_operateurs = set(df['Prénom et nom'].unique())
+    operateurs_corrects = set(entrees.index) & set(sorties.index)
+    operateurs_incorrects = tous_les_operateurs - operateurs_corrects
+    
+    return list(operateurs_corrects), list(operateurs_incorrects)
 
-# Fonction pour appliquer des styles aux moyennes
-def style_moyennes(df, top_n=3, bottom_n=5):
-    moyenne_totale = df['Repetitions'].mean()
+# Fonction pour créer les colonnes 'Date et heure_entree' et 'Date et heure_sortie'
+def create_entry_exit_columns(df):
+    # Créer des colonnes vides pour l'entrée et la sortie
+    df['Date et heure_entree'] = pd.NaT
+    df['Date et heure_sortie'] = pd.NaT
 
-    df_top = df.nlargest(top_n, 'Repetitions')
-    df_bottom = df.nsmallest(bottom_n, 'Repetitions')
+    # Remplir les colonnes en fonction de l'action
+    mask_entree = df['Action'] == 'Pointer entrée'
+    mask_sortie = df['Action'] == 'Pointer sortie'
 
-    def apply_styles(row):
-        if row.name in df_top.index:
-            return ['background-color: gold; color: black'] * len(row)
-        elif row.name in df_bottom.index:
-            return ['background-color: lightcoral; color: white'] * len(row)
-        elif row['Repetitions'] > moyenne_totale:
-            return ['background-color: lightgreen'] * len(row)
-        else:
-            return ['background-color: lightpink'] * len(row)
+    df.loc[mask_entree, 'Date et heure_entree'] = df.loc[mask_entree, 'Date et heure']
+    df.loc[mask_sortie, 'Date et heure_sortie'] = df.loc[mask_sortie, 'Date et heure']
 
-    styled_df = df.style.apply(apply_styles, axis=1)
-    return styled_df
+    # Grouper par 'Prénom et nom' pour avoir une ligne par personne avec entrée et sortie
+    df_grouped = df.groupby('Prénom et nom').agg({
+        'Date et heure_entree': 'first',  # Première entrée enregistrée
+        'Date et heure_sortie': 'last',  # Dernière sortie enregistrée
+        'PIN': 'first'  # Conserver le PIN de l'employé
+    }).reset_index()
 
-# Fonction pour générer un PDF
-def generate_pdf(df, filename="tableau.pdf"):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    c.drawString(30, height - 40, "Tableau des répétitions des opérateurs")
+    return df_grouped
 
-    y_position = height - 60
-    for i, row in df.iterrows():
-        text = f"{row['Prénom et nom']} : {row['Repetitions']}"
-        c.drawString(30, y_position, text)
-        y_position -= 20
+def get_entry_exit_times(df):
+    # Trier le DataFrame par employé et date/heure
+    df = df.sort_values(['Prénom et nom', 'Date et heure'])
+    
+    # Initialiser les listes pour stocker les résultats
+    entries = []
+    exits = []
+    noms = []
+    durees = []
+    
+    for name, group in df.groupby('Prénom et nom'):
+        entry_time = None
+        for _, row in group.iterrows():
+            if row['Action'] == 'Pointer entrée' and entry_time is None:
+                entry_time = row['Date et heure']
+                prenom_nom = row['Prénom et nom']
+            elif row['Action'] == 'Pointer sortie' and entry_time is not None:
+                exit_time = row['Date et heure']
+                if exit_time - entry_time <= timedelta(days=1):
+                    entries.append(entry_time)
+                    exits.append(exit_time)
+                    noms.append(prenom_nom)
+                    
+                    # Calculer la durée en heures
+                    duree = (exit_time - entry_time).total_seconds() / 3600
+                    durees.append(round(duree, 2))
+                    
+                    entry_time = None
+                else:
+                    # Si la sortie est plus d'un jour après l'entrée, on l'ignore
+                    entry_time = None
+    
+    return pd.DataFrame({'Prénom et nom': noms,'Entrée': entries,'Sortie': exits,'Durée (heures)': durees})
+                       
+# Dans la partie principale de votre application Streamlit
+st.title("Analyse des pointages")
 
-    c.save()
-    buffer.seek(0)
-    return buffer.getvalue()
+# Ajouter un widget pour télécharger le fichier Excel
 
-# Fonction pour le tirage au sort
-def tirage_au_sort(df, debut_periode, fin_periode):
-    df_filtre = df[(df['Date'] >= debut_periode) & (df['Date'] <= fin_periode)]
-    return df_filtre.sample(n=2)
+fichier_principal = "https://docs.google.com/spreadsheets/d/152ktjGubNDIr1PPG04mqJwZf9mhYTHmQ/export?format=xlsx"
+uploaded_file = pd.read_excel("https://docs.google.com/spreadsheets/d/152ktjGubNDIr1PPG04mqJwZf9mhYTHmQ/export?format=xlsx")
+df = charger_donnees(fichier_principal)
+df['Date et heure'] = pd.to_datetime(df['Date et heure'], errors='coerce')
 
-# Configuration de la page Streamlit
-st.set_page_config(page_title="Analyse des Interventions", page_icon="📊", layout="wide")
-st.title("📊 Analyse des interventions des opérateurs")
+# Titre de l'application
+st.title("Répartition des Durées Totales par Employé")
+# Tri des données
 
-fichier_principal = st.file_uploader("Choisissez le fichier principal (donnee_Aesma.xlsx)", type="xlsx")
+# Afficher les opérateurs avec leurs entrées/sorties
+result = get_entry_exit_times(df)
+st.subheader("Opérateurs avec entrées/sorties et durées total mensuelles")
+resultat = result.groupby('Prénom et nom')['Durée (heures)'].sum().reset_index()
+resultat = resultat.rename(columns={'Durée (heures)':'Durée Total'})
+df_sorted = resultat.sort_values('Durée Total', ascending=False)
+
+# Création de la palette de couleurs
+color_scale = px.colors.sequential.Viridis
+
+# Création du treemap
+fig = go.Figure(go.Treemap(
+    labels=df_sorted['Prénom et nom'],
+    parents=[""] * len(df_sorted),
+    values=df_sorted['Durée Total'],
+    textinfo="label+value",
+    hovertemplate='<b>%{label}</b><br>Durée Totale: %{value:.2f} heures<extra></extra>',
+    marker=dict(
+        colorscale=color_scale,
+        colors=df_sorted['Durée Total'],
+        colorbar=dict(title="Durée<br>Totale"),
+    ),
+))
+
+# Personnalisation du layout
+fig.update_layout(
+    title={
+        'text': "Répartition des Durées Totales par Employé",
+        'y':0.95,
+        'x':0.5,
+        'xanchor': 'center',
+        'yanchor': 'top',
+        'font': dict(size=24)
+    },
+    width=1000,
+    height=800,
+)
+
+# Affichage du graphique dans Streamlit
+st.plotly_chart(fig, use_container_width=True)
+
+# Ajout d'une section pour afficher les données brutes
+if st.checkbox("Afficher les données brutes"):
+    st.write(df)
+
 
 if fichier_principal is not None:
-    df_principal = charger_donnees(fichier_principal)
+    # Charger les données depuis le fichier téléchargé
+    df = charger_donnees(fichier_principal)
+    
+    if df is not None:
+        st.success("Données chargées avec succès !")
 
-    col1, col2 = st.columns([2, 3])
+        # Créer les colonnes d'entrée/sortie
+        df_with_entry_exit = create_entry_exit_columns(df)
 
-    with col1:
-        col_prenom_nom = df_principal.columns[4]
-        col_date = df_principal.columns[6]
-
-        operateurs = df_principal[col_prenom_nom].unique().tolist()
-        operateurs.append("Total")
-        operateurs.append("Team 1 : Christian")
-        operateurs.append("Team 2 : Hakim")
-        operateurs_selectionnes = st.multiselect("Choisissez un ou plusieurs opérateurs", operateurs)
-
-        if "Total" in operateurs_selectionnes:
-            operateurs_selectionnes = df_principal[col_prenom_nom].unique().tolist()
-            
-        periodes = ["Jour", "Semaine", "Mois", "Trimestre", "Année"]
-        periode_selectionnee = st.selectbox("Choisissez une période", periodes)
-
-        df_principal[col_date] = pd.to_datetime(df_principal[col_date], errors='coerce')
-
-        date_min = df_principal[col_date].min()
-        date_max = df_principal[col_date].max()
-
-        if pd.isna(date_min) or pd.isna(date_max):
-            st.warning("Certaines dates dans le fichier sont invalides. Elles ont été ignorées.")
-            date_min = date_max = None
-
-        debut_periode = st.date_input("Début de la période", min_value=date_min, max_value=date_max, value=date_min)
-        fin_periode = st.date_input("Fin de la période", min_value=debut_periode, max_value=date_max, value=date_max)
-
-    if st.button("Analyser"):
-        df_principal = df_principal.dropna(subset=[col_date])
-
-        df_principal['Jour'] = df_principal[col_date].dt.date
-        df_principal['Semaine'] = df_principal[col_date].dt.to_period('W').astype(str)
-        df_principal['Mois'] = df_principal[col_date].dt.to_period('M').astype(str)
-        df_principal['Trimestre'] = df_principal[col_date].dt.to_period('Q').astype(str)
-        df_principal['Année'] = df_principal[col_date].dt.year
-
-        df_graph = df_principal[(df_principal[col_date].dt.date >= debut_periode) & (df_principal[col_date].dt.date <= fin_periode)]
-
-        groupby_cols = [col_prenom_nom]
-        if periode_selectionnee != "Total":
-            groupby_cols.append(periode_selectionnee)
-
-        repetitions_graph = df_graph[df_graph[col_prenom_nom].isin(operateurs_selectionnes)].groupby(groupby_cols).size().reset_index(name='Repetitions')
-        repetitions_tableau = df_principal[df_principal[col_prenom_nom].isin(operateurs_selectionnes)].groupby(groupby_cols).size().reset_index(name='Repetitions')
-
-        with col2:
-            # Graphique principal (barres)
-            fig = go.Figure()
-
-            for operateur in operateurs_selectionnes:
-                df_operateur = repetitions_graph[repetitions_graph[col_prenom_nom] == operateur]
-                fig.add_trace(go.Bar(x=df_operateur[periode_selectionnee],
-                                     y=df_operateur['Repetitions'],
-                                     name=operateur,
-                                     text=df_operateur['Repetitions'],
-                                     textposition='inside',
-                                     hovertemplate='%{y}'))
-
-            fig.update_layout(title=f"Nombre de rapports d'intervention (du {debut_periode} au {fin_periode})",
-                              xaxis_title=periode_selectionnee,
-                              yaxis_title="Répetitions",
-                              template="plotly_dark")
-            st.plotly_chart(fig)
-
-        # Calcul des moyennes par opérateur et par période
-        moyennes_par_periode = repetitions_graph.groupby([periode_selectionnee, col_prenom_nom])['Repetitions'].mean().reset_index()
-        moyennes_par_operateur = moyennes_par_periode.groupby(['Prénom et nom'])['Repetitions'].mean().reset_index()
-        moyenne_globale = moyennes_par_periode['Repetitions'].mean()
-
-        # Graphique des moyennes avec moyenne globale
-        fig1 = go.Figure()
-
-        colors = px.colors.qualitative.Set1
-
-        for i, operateur in enumerate(operateurs_selectionnes):
-            df_operateur_moyenne = moyennes_par_periode[moyennes_par_periode[col_prenom_nom] == operateur]
-            fig1.add_trace(go.Scatter(
-                x=df_operateur_moyenne[periode_selectionnee],
-                y=df_operateur_moyenne['Repetitions'],
-                mode='lines+markers',
-                name=operateur,
-                line=dict(color=colors[i % len(colors)]),
-                text=df_operateur_moyenne['Repetitions'],
-                textposition='top center'
-            ))
-
-        # Ligne de moyenne globale
-        fig1.add_trace(go.Scatter(
-            x=moyennes_par_periode[periode_selectionnee].unique(),
-            y=[moyenne_globale] * len(moyennes_par_periode[periode_selectionnee].unique()),
-            mode='lines',
-            name='Moyenne Globale',
-            line=dict(color='red', dash='dash'),
-            hoverinfo='skip'
-        ))
-
-        fig1.update_layout(
-            title=f"Moyenne des rapports d'interventions par opérateur ({periode_selectionnee}) avec ligne de moyenne globale",
-            xaxis_title=periode_selectionnee,
-            yaxis_title="Moyenne des rapports d'interventions",
-            template="plotly_dark"
-        )
-
-        st.plotly_chart(fig1)
-
-        # Affichage des tableaux
-        col3, col4 = st.columns([2, 3])
+        # Afficher les opérateurs avec leurs entrées/sorties
+        result = get_entry_exit_times(df)
+        st.subheader("Opérateurs avec entrées/sorties et durées total mensuelles")
+        resultat = result.groupby('Prénom et nom')['Durée (heures)'].sum().reset_index()
+        resultat = resultat.rename(columns={'Durée (heures)':'Durée Mensuelle Total'})
+        st.write(resultat)
         
-        with col3:
-            st.write("### Tableau des Moyennes par période et par opérateur")
-            styled_df = style_moyennes(moyennes_par_operateur)
-            st.dataframe(styled_df, use_container_width=True)
+    else:
+        st.error("Impossible de charger les données. Vérifiez le fichier.")
+else:
+    st.info("Veuillez télécharger un fichier Excel ou CSV pour commencer l'analyse.")
+        
+st.title("Analyse des pointages - Janvier 2025")
 
-        with col4:
-            st.write("### Tableau des rapports d'intervention par période et par opérateur")
-            st.dataframe(repetitions_tableau, use_container_width=True)
+operateurs_corrects, operateurs_incorrects = get_correct_and_incorrect_pointages(df)
 
-                # Affichage des tableaux
-        st.subheader("Tirage au sort de deux lignes par opérateur")
-        df_filtre = df_principal[(df_principal[col_date].dt.date >= debut_periode) & (df_principal[col_date].dt.date <= fin_periode)]
-        for operateur in operateurs_selectionnes:
-            st.write(f"### Tirage pour {operateur}:")
-            df_operateur = df_filtre[df_filtre[col_prenom_nom] == operateur]
-            lignes_tirees = df_operateur.sample(n=min(2, len(df_operateur)))
+col1, col2 = st.columns(2)
 
-            if not lignes_tirees.empty:
-                for _, ligne in lignes_tirees.iterrows():
-                    col_info, col_photo = st.columns([3, 1])
+with col1:
+    st.subheader("Opérateurs ayant pointé correctement")
+    with st.expander("Opérateurs corrects"):
+        for operateur in operateurs_corrects:
+            st.write(f"- {operateur}")
+with col2:
+    st.subheader("Opérateurs n'ayant pas pointé correctement")
+    with st.expander("Opérateurs incorrects"):
+        for operateur in operateurs_incorrects:
+            st.write(f"- {operateur}")
+        
+# Filtrer les données pour janvier 2025
+df_janvier = df[df['Date et heure'].dt.month == 1]
 
-                    with col_info:
-                        st.markdown(f"""
-                        **Date**: {ligne['Date et Heure début d\'intervention']}
-                        **Opérateur**: {ligne['Prénom et nom']}
-                        **Équipement**: {ligne['Équipement']}
-                        **Localisation**: {ligne['Localisation']}
-                        **Problème**: {ligne['Technique'] if pd.notna(ligne['Technique']) else ligne['Opérationnel']}
-                        """)
+col3, col4 = st.columns(2)
 
-                    with col_photo:
-                        if pd.notna(ligne['Photo']):
-                            st.image(ligne['Photo'], width=200)
-                        else:
-                            st.write("Pas de photo disponible")
-            else:
-                st.write("Pas de données disponibles pour cet opérateur dans la période sélectionnée.")
+with col3:
+    # Nombre total de pointages par jour
+    st.header("Nombre total de pointages par jour")
+    df_janvier['Date'] = pd.to_datetime(df_janvier['Date et heure']).dt.date
+    pointages_par_jour = df_janvier.groupby('Date').size()
+    st.bar_chart(pointages_par_jour)
 
-        # Téléchargement des rapports
-        st.subheader("Télécharger le tableau des rapports d'interventions")
-        xlsx_data = convert_df_to_xlsx(repetitions_tableau)
-        st.download_button(label="Télécharger en XLSX", data=xlsx_data, file_name="NombredesRapports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+with col4:
+    # Calculer le taux de succès
+    total_actions = len(df)
+    actions_succes = len(df[df['Statut'] == 'Succès'])
+    success_rate = (actions_succes / total_actions) * 100
+    failure_rate = 100 - success_rate
 
-        st.subheader("Télécharger le tableau des rapports d'interventions en PDF")
-        pdf_data = generate_pdf(repetitions_tableau)
-        st.download_button(label="Télécharger en PDF", data=pdf_data, file_name="tableau.pdf", mime="application/pdf")
+    # Création du camembert 3D
+    fig, ax = plt.subplots(figsize=(8, 6), subplot_kw=dict(projection='3d'))
 
-    if st.checkbox("Afficher toutes les données"):
-        st.dataframe(df_principal)
+    # Taux de succès
+    st.header("Taux de succès")
+    taux_succes = (df_janvier['Statut'] == 'Succès').mean() * 100
+    # Données du taux de succès
+    success_rate = taux_succes
+    failure_rate = 100 - success_rate
+
+    # Création du camembert
+    fig, ax = plt.subplots()
+    sizes = [success_rate, failure_rate]
+    labels = ['Succès', 'Échec']
+    colors = ['#4CAF50', '#F44336']
+    ax.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+    ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+
+    # Titre du graphique
+    plt.title("Taux de succès des pointages")
+
+    # Affichage du camembert dans Streamlit
+    st.pyplot(fig)
+
+    result = get_entry_exit_times(df)
+    print(result)
+
+# Observations particulières
+st.header("Observations particulières")
+observations = [
+    f"Nombre total d'enregistrements en janvier : {len(df_janvier)}",
+    f"Nombre d'opérateurs uniques : {df_janvier['Prénom et nom'].nunique()}",
+    f"Jour avec le plus de pointages : {pointages_par_jour.idxmax()} ({pointages_par_jour.max()} pointages)",
+    f"Jour avec le moins de pointages : {pointages_par_jour.idxmin()} ({pointages_par_jour.min()} pointages)",
+    "Certains opérateurs ont des pointages incomplets (entrée sans sortie ou vice versa)",
+    "Il y a des cas de pointages multiples pour certains opérateurs dans la même journée"
+]
+for obs in observations:
+    st.write("- " + obs)
+
+# Affichage des données brutes
+if st.checkbox("Afficher les données brutes de janvier"):
+    st.subheader("Données brutes de janvier 2025")
+    st.write(df_janvier)
