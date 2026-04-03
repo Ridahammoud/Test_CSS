@@ -126,7 +126,7 @@ st.title("Analyse des pointages")
 
 # Ajouter un widget pour télécharger le fichier Excel
 
-fichier_principal = "https://docs.google.com/spreadsheets/d/152ktjGubNDIr1PPG04mqJwZf9mhYTHmQ/export?format=xlsx"
+fichier_principal = "https://docs.google.com/spreadsheets/d/1gzoKfkClUx9MDkTIgx7kFma9oOwk1i6p/export?format=xlsx"
 uploaded_file = pd.read_excel("https://docs.google.com/spreadsheets/d/152ktjGubNDIr1PPG04mqJwZf9mhYTHmQ/export?format=xlsx")
 df = charger_donnees(fichier_principal)
 df['Date et heure'] = pd.to_datetime(df['Date et heure'], errors='coerce')
